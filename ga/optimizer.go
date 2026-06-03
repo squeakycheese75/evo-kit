@@ -5,140 +5,136 @@ import (
 	"sort"
 )
 
-func Run[T any](cfg Config[T]) Result[T] {
-	rng := rand.New(rand.NewSource(cfg.Seed))
+const numberOfSelectors = 3
 
-	population := initialPopulation(rng, cfg.PopulationSize, cfg.Generate)
+func Run[T any](cfg Config[T]) (Result[T], error) {
+	runner := newRunner(cfg)
 
-	var best Scored[T]
-	bestGeneration := 0
-	stagnation := 0
+	if err := cfg.Validate(); err != nil {
+		return Result[T]{}, err
+	}
+	return runner.Run(), nil
+}
 
-	for generation := 0; generation < cfg.Generations; generation++ {
-		scored := scorePopulation(population, cfg.Fitness)
+type runner[T any] struct {
+	cfg      Config[T]
+	rng      *rand.Rand
+	selector Selector[T]
 
-		sort.Slice(scored, func(i, j int) bool {
-			return scored[i].Score > scored[j].Score
-		})
+	initializer PopulationInitializer[T]
+	scorer      PopulationScorer[T]
+	sorter      PopulationSorter[T]
+	stats       PopulationStatsCalculator[T]
+	next        NextGenerationBuilder[T]
 
-		averageScore, worstScore := populationStats(scored)
+	best           Scored[T]
+	bestGeneration int
+	stagnation     int
+}
 
-		improved := generation == 0 || scored[0].Score > best.Score
+func newRunner[T any](cfg Config[T]) *runner[T] {
+	selector := cfg.Select
+	if selector == nil {
+		selector = TournamentSelector[T](numberOfSelectors)
+	}
 
-		if improved {
-			best = scored[0]
-			bestGeneration = generation
-			stagnation = 0
+	ops := defaultEvolutionOps[T]{}
 
-			stats := GenerationStats[T]{
-				Generation:    generation,
-				BestCandidate: best.Candidate,
-				BestScore:     best.Score,
-				AverageScore:  averageScore,
-				WorstScore:    worstScore,
-				Stagnation:    stagnation,
-			}
+	return &runner[T]{
+		cfg:         cfg,
+		rng:         rand.New(rand.NewSource(cfg.Seed)),
+		selector:    selector,
+		initializer: ops,
+		scorer:      ops,
+		sorter:      ops,
+		stats:       ops,
+		next:        ops,
+	}
+}
 
-			if cfg.OnGeneration != nil {
-				cfg.OnGeneration(stats)
-			}
+func (r *runner[T]) Run() Result[T] {
+	population := initialPopulation(r.rng, r.cfg.PopulationSize, r.cfg.Generate)
 
-			if cfg.OnImprovement != nil {
-				cfg.OnImprovement(stats)
-			}
+	for generation := 0; generation < r.cfg.Generations; generation++ {
+		scored := r.scoreAndSort(population)
 
-			if cfg.TargetScore > 0 && best.Score >= cfg.TargetScore {
-				return Result[T]{
-					Best:       best.Candidate,
-					BestScore:  best.Score,
-					Generation: bestGeneration,
-				}
-			}
-		} else {
-			stagnation++
+		stats, improved := r.updateBest(generation, scored)
+
+		r.emitGeneration(stats, improved)
+
+		if r.targetReached() {
+			return r.result()
 		}
 
-		population = nextGeneration(rng, cfg, scored)
+		population = r.nextGeneration(scored)
 	}
 
-	return Result[T]{
-		Best:       best.Candidate,
-		BestScore:  best.Score,
-		Generation: bestGeneration,
-	}
+	return r.result()
 }
 
-func initialPopulation[T any](
-	rng *rand.Rand,
-	size int,
-	generate Generator[T],
-) []T {
-	population := make([]T, size)
+func (r *runner[T]) scoreAndSort(population []T) []Scored[T] {
+	scored := scorePopulation(population, r.cfg.Fitness)
 
-	for i := range population {
-		population[i] = generate(rng)
-	}
-
-	return population
-}
-
-func populationStats[T any](scored []Scored[T]) (average float64, worst float64) {
-	if len(scored) == 0 {
-		return 0, 0
-	}
-
-	total := 0.0
-
-	for _, item := range scored {
-		total += item.Score
-	}
-
-	return total / float64(len(scored)), scored[len(scored)-1].Score
-}
-
-func scorePopulation[T any](
-	population []T,
-	fitness FitnessFunc[T],
-) []Scored[T] {
-	scored := make([]Scored[T], len(population))
-
-	for i, candidate := range population {
-		scored[i] = Scored[T]{
-			Candidate: candidate,
-			Score:     fitness(candidate),
-		}
-	}
+	sort.Slice(scored, func(i, j int) bool {
+		return better(r.cfg.Direction, scored[i].Score, scored[j].Score)
+	})
 
 	return scored
 }
 
-func nextGeneration[T any](
-	rng *rand.Rand,
-	cfg Config[T],
+func (r *runner[T]) updateBest(
+	generation int,
 	scored []Scored[T],
-) []T {
-	next := make([]T, 0, cfg.PopulationSize)
+) (GenerationStats[T], bool) {
+	averageScore, worstScore := populationStats(scored)
 
-	for i := 0; i < cfg.EliteCount; i++ {
-		next = append(next, scored[i].Candidate)
+	// improved := generation == 0 || scored[0].Score > r.best.Score
+	improved := generation == 0 || better(r.cfg.Direction, scored[0].Score, r.best.Score)
+
+	if improved {
+		r.best = scored[0]
+		r.bestGeneration = generation
+		r.stagnation = 0
+	} else {
+		r.stagnation++
 	}
 
-	for len(next) < cfg.PopulationSize {
-		a := tournament(rng, scored, 3)
-		b := tournament(rng, scored, 3)
+	return GenerationStats[T]{
+		Generation:    generation,
+		BestCandidate: r.best.Candidate,
+		BestScore:     r.best.Score,
+		AverageScore:  averageScore,
+		WorstScore:    worstScore,
+		Stagnation:    r.stagnation,
+	}, improved
+}
 
-		child := a
-
-		if rng.Float64() < cfg.CrossoverRate {
-			child = cfg.Crossover(rng, a, b)
-		}
-
-		if rng.Float64() < cfg.MutationRate {
-			child = cfg.Mutate(rng, child)
-		}
-
-		next = append(next, child)
+func (r *runner[T]) emitGeneration(stats GenerationStats[T], improved bool) {
+	if !improved {
+		return
 	}
 
-	return next
+	if r.cfg.OnGeneration != nil {
+		r.cfg.OnGeneration(stats)
+	}
+
+	if r.cfg.OnImprovement != nil {
+		r.cfg.OnImprovement(stats)
+	}
+}
+
+func (r *runner[T]) targetReached() bool {
+	return r.cfg.TargetScore > 0 && r.best.Score >= r.cfg.TargetScore
+}
+
+func (r *runner[T]) nextGeneration(scored []Scored[T]) []T {
+	return nextGeneration(r.rng, r.cfg, scored, r.selector)
+}
+
+func (r *runner[T]) result() Result[T] {
+	return Result[T]{
+		Best:       r.best.Candidate,
+		BestScore:  r.best.Score,
+		Generation: r.bestGeneration,
+	}
 }
