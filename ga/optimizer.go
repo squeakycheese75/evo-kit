@@ -81,7 +81,7 @@ func (r *runner[T]) Run() Result[T] {
 }
 
 func (r *runner[T]) scoreAndSort(population []T) []Scored[T] {
-	scored := r.ops.Score(population, r.cfg.Fitness)
+	scored := r.ops.Score(population, r.cfg.Fitness, r.cfg.Workers)
 	r.ops.Sort(r.cfg.Direction, scored)
 
 	return scored

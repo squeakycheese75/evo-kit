@@ -3,6 +3,7 @@ package ga
 import (
 	"math/rand"
 	"testing"
+	"time"
 )
 
 const benchmarkTarget = "hello world"
@@ -176,4 +177,84 @@ func benchmarkScore(candidate string, target string) float64 {
 	}
 
 	return score
+}
+
+func BenchmarkWorkers1(b *testing.B) {
+	benchmarkWorkers(b, 1)
+}
+
+func BenchmarkWorkers2(b *testing.B) {
+	benchmarkWorkers(b, 2)
+}
+
+func BenchmarkWorkers4(b *testing.B) {
+	benchmarkWorkers(b, 4)
+}
+
+func BenchmarkWorkers8(b *testing.B) {
+	benchmarkWorkers(b, 8)
+}
+
+func benchmarkWorkers(b *testing.B, workers int) {
+	target := "hello world"
+
+	cfg := Config[string]{
+		PopulationSize: 100,
+		Generations:    100,
+		MutationRate:   0.1,
+		CrossoverRate:  0.7,
+		EliteCount:     2,
+		Workers:        workers,
+		Direction:      Maximize,
+		Seed:           42,
+
+		Generate: func(rng *rand.Rand) string {
+			buf := make([]byte, len(target))
+
+			for i := range buf {
+				buf[i] = byte('a' + rng.Intn(26))
+			}
+
+			return string(buf)
+		},
+
+		Fitness: func(candidate string) float64 {
+			time.Sleep(100 * time.Microsecond)
+
+			score := 0
+
+			for i := range target {
+				if candidate[i] == target[i] {
+					score++
+				}
+			}
+
+			return float64(score)
+		},
+
+		Mutate: func(rng *rand.Rand, candidate string) string {
+			buf := []byte(candidate)
+
+			idx := rng.Intn(len(buf))
+			buf[idx] = byte('a' + rng.Intn(26))
+
+			return string(buf)
+		},
+
+		Crossover: func(rng *rand.Rand, a, b string) string {
+			point := rng.Intn(len(a))
+
+			return a[:point] + b[point:]
+		},
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		_, err := Run(cfg)
+
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }

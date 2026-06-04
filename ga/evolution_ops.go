@@ -3,11 +3,12 @@ package ga
 import (
 	"math/rand"
 	"sort"
+	"sync"
 )
 
 type evolutionOps[T any] interface {
 	InitialPopulation(rng *rand.Rand, size int, generate Generator[T]) []T
-	Score(population []T, fitness FitnessFunc[T]) []Scored[T]
+	Score(population []T, fitness FitnessFunc[T], workers int) []Scored[T]
 	Sort(direction OptimizationDirection, scored []Scored[T])
 	Stats(scored []Scored[T]) (float64, float64)
 	NextGeneration(rng *rand.Rand, cfg Config[T], scored []Scored[T], selector Selector[T]) []T
@@ -26,8 +27,13 @@ func (defaultEvolutionOps[T]) InitialPopulation(
 func (defaultEvolutionOps[T]) Score(
 	population []T,
 	fitness FitnessFunc[T],
+	workers int,
 ) []Scored[T] {
-	return scorePopulation(population, fitness)
+	if workers <= 1 {
+		return scorePopulation(population, fitness)
+	}
+
+	return scorePopulationParallel(population, fitness, workers)
 }
 
 func (defaultEvolutionOps[T]) Sort(
@@ -92,6 +98,47 @@ func scorePopulation[T any](
 			Score:     fitness(candidate),
 		}
 	}
+
+	return scored
+}
+
+func scorePopulationParallel[T any](
+	population []T,
+	fitness FitnessFunc[T],
+	workers int,
+) []Scored[T] {
+	if workers > len(population) {
+		workers = len(population)
+	}
+
+	scored := make([]Scored[T], len(population))
+	jobs := make(chan int)
+
+	var wg sync.WaitGroup
+
+	for range workers {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for i := range jobs {
+				candidate := population[i]
+
+				scored[i] = Scored[T]{
+					Candidate: candidate,
+					Score:     fitness(candidate),
+				}
+			}
+		}()
+	}
+
+	for i := range population {
+		jobs <- i
+	}
+
+	close(jobs)
+	wg.Wait()
 
 	return scored
 }

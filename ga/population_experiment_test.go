@@ -1,7 +1,6 @@
 package ga
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 )
@@ -68,10 +67,6 @@ func TestPopulationSizes(t *testing.T) {
 
 		average := float64(totalGenerations) / runs
 
-		fmt.Printf(
-			"population=%d avg_generation=%.2f\n",
-			size,
-			average,
-		)
+		t.Logf("population=%d avg_generation=%.2f", size, average)
 	}
 }

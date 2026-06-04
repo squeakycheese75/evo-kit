@@ -56,6 +56,11 @@ type Config[T any] struct {
 
 	// OnImprovement is called whenever a new best candidate is found.
 	OnImprovement func(stats GenerationStats[T])
+
+	// Workers controls how many goroutines are used to score candidates.
+	// A value of zero or one scores candidates sequentially.
+	// Fitness functions must be safe for concurrent use when Workers is greater than one.
+	Workers int
 }
 
 // Validate checks whether the config contains the required values.
@@ -86,6 +91,10 @@ func (cfg Config[T]) Validate() error {
 
 	if cfg.Crossover == nil {
 		return fmt.Errorf("crossover function is required")
+	}
+
+	if cfg.Workers < 0 {
+		return fmt.Errorf("workers must be greater than or equal to zero")
 	}
 
 	return nil

@@ -2,6 +2,7 @@ package ga
 
 import (
 	"math/rand"
+	"reflect"
 	"testing"
 )
 
@@ -214,5 +215,20 @@ func TestRunStopReasonTargetReached(t *testing.T) {
 
 	if result.StopReason != StopReasonTargetReached {
 		t.Fatalf("expected stop reason %q, got %q", StopReasonTargetReached, result.StopReason)
+	}
+}
+
+func TestScorePopulationParallelMatchesSequential(t *testing.T) {
+	population := []int{1, 2, 3, 4, 5}
+
+	fitness := func(candidate int) float64 {
+		return float64(candidate * candidate)
+	}
+
+	sequential := scorePopulation(population, fitness)
+	parallel := scorePopulationParallel(population, fitness, 2)
+
+	if !reflect.DeepEqual(sequential, parallel) {
+		t.Fatalf("expected parallel score to match sequential")
 	}
 }
