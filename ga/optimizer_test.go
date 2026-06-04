@@ -2,6 +2,7 @@ package ga
 
 import (
 	"math/rand"
+	"reflect"
 	"testing"
 )
 
@@ -214,5 +215,87 @@ func TestRunStopReasonTargetReached(t *testing.T) {
 
 	if result.StopReason != StopReasonTargetReached {
 		t.Fatalf("expected stop reason %q, got %q", StopReasonTargetReached, result.StopReason)
+	}
+}
+func TestNewIslandRunnerHasDifferentPopulations(t *testing.T) {
+	cfg := Config[int]{
+		PopulationSize: 10,
+		Generations:    10,
+		Seed:           42,
+		Islands: &IslandConfig{
+			Count: 2,
+		},
+
+		Generate: func(rng *rand.Rand) int {
+			return rng.Int()
+		},
+
+		Fitness: func(candidate int) float64 {
+			return float64(candidate)
+		},
+
+		Mutate: func(rng *rand.Rand, candidate int) int {
+			return candidate
+		},
+
+		Crossover: func(rng *rand.Rand, a, b int) int {
+			return a
+		},
+	}
+
+	runner := newIslandRunner(cfg)
+
+	if len(runner.islands) != 2 {
+		t.Fatalf("expected 2 islands, got %d", len(runner.islands))
+	}
+
+	if reflect.DeepEqual(
+		runner.islands[0].population,
+		runner.islands[1].population,
+	) {
+		t.Fatal("expected islands to have different populations")
+	}
+}
+func TestNewIslandRunnerIsDeterministic(t *testing.T) {
+	cfg := Config[int]{
+		PopulationSize: 10,
+		Generations:    10,
+		Seed:           42,
+		Islands: &IslandConfig{
+			Count: 2,
+		},
+
+		Generate: func(rng *rand.Rand) int {
+			return rng.Int()
+		},
+
+		Fitness: func(candidate int) float64 {
+			return float64(candidate)
+		},
+
+		Mutate: func(rng *rand.Rand, candidate int) int {
+			return candidate
+		},
+
+		Crossover: func(rng *rand.Rand, a, b int) int {
+			return a
+		},
+	}
+
+	runnerA := newIslandRunner(cfg)
+	runnerB := newIslandRunner(cfg)
+
+	if !reflect.DeepEqual(
+		runnerA.islands[0].population,
+		runnerB.islands[0].population,
+	) {
+		t.Fatal("expected island 0 population to be deterministic")
+	}
+
+	if !reflect.DeepEqual(
+		runnerA.islands[1].population,
+		runnerB.islands[1].population,
+	) {
+		t.Fatal("expected island 1 population to be deterministic")
 	}
 }

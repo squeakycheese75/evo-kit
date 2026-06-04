@@ -2,6 +2,7 @@ package ga
 
 import (
 	"math/rand"
+	"sync"
 )
 
 const defaultNoOfSelectors = 3
@@ -12,22 +13,200 @@ func Run[T any](cfg Config[T]) (Result[T], error) {
 		return Result[T]{}, err
 	}
 
+	if cfg.Islands != nil {
+		return newIslandRunner(cfg).Run(), nil
+	}
+
 	return newRunner(cfg).Run(), nil
 }
 
-type runner[T any] struct {
-	cfg      Config[T]
-	rng      *rand.Rand
-	selector Selector[T]
+type islandRunner[T any] struct {
+	cfg     Config[T]
+	islands []*runner[T]
+}
 
-	ops evolutionOps[T]
+func (r *islandRunner[T]) step() {
+	if r.cfg.Islands != nil && r.cfg.Islands.Parallel {
+		r.stepParallel()
+		return
+	}
 
-	best           Scored[T]
-	bestGeneration int
-	stagnation     int
+	r.stepSequential()
+}
 
-	history    []GenerationStats[T]
-	stopReason StopReason
+func (r *islandRunner[T]) stepSequential() {
+	for _, island := range r.islands {
+		if island.stopReason != "" {
+			continue
+		}
+
+		if island.generation >= island.cfg.Generations {
+			island.stopReason = StopReasonGenerationLimit
+			continue
+		}
+
+		island.step()
+	}
+}
+
+func (r *islandRunner[T]) stepParallel() {
+	var wg sync.WaitGroup
+
+	for _, island := range r.islands {
+		if island.stopReason != "" {
+			continue
+		}
+
+		if island.generation >= island.cfg.Generations {
+			island.stopReason = StopReasonGenerationLimit
+			continue
+		}
+
+		wg.Add(1)
+
+		go func(island *runner[T]) {
+			defer wg.Done()
+			island.step()
+		}(island)
+	}
+
+	wg.Wait()
+}
+
+func (r *islandRunner[T]) Run() Result[T] {
+	for generation := 0; generation < r.cfg.Generations; generation++ {
+		r.step()
+
+		if r.shouldMigrate(generation) {
+			r.migrate()
+		}
+
+		if r.allStopped() {
+			break
+		}
+	}
+
+	return r.result()
+}
+
+func (r *islandRunner[T]) shouldMigrate(generation int) bool {
+	if r.cfg.Islands == nil {
+		return false
+	}
+
+	if r.cfg.Islands.MigrationInterval <= 0 {
+		return false
+	}
+
+	if generation == 0 {
+		return false
+	}
+
+	return generation%r.cfg.Islands.MigrationInterval == 0
+}
+
+func (r *islandRunner[T]) result() Result[T] {
+	bestIsland := r.islands[0]
+
+	history := make([]GenerationStats[T], 0)
+
+	for _, island := range r.islands {
+		history = append(history, island.history...)
+
+		betterScore := isBetter(
+			r.cfg.Direction,
+			island.best.Score,
+			bestIsland.best.Score,
+		)
+
+		sameScoreEarlier := island.best.Score == bestIsland.best.Score &&
+			island.bestGeneration < bestIsland.bestGeneration
+
+		if betterScore || sameScoreEarlier {
+			bestIsland = island
+		}
+	}
+
+	result := bestIsland.result()
+	result.History = history
+
+	return result
+}
+
+func (r *islandRunner[T]) allStopped() bool {
+	for _, island := range r.islands {
+		if island.stopReason == "" {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (r *islandRunner[T]) migrate() {
+	if r.cfg.Islands == nil {
+		return
+	}
+
+	if r.cfg.Islands.MigrationCount <= 0 {
+		return
+	}
+
+	if len(r.islands) < 2 {
+		return
+	}
+
+	migrants := make([][]T, len(r.islands))
+
+	for i, island := range r.islands {
+		scored := island.scoreAndSort(island.population)
+
+		count := r.cfg.Islands.MigrationCount
+		if count > len(scored) {
+			count = len(scored)
+		}
+
+		migrants[i] = make([]T, count)
+
+		for j := 0; j < count; j++ {
+			migrants[i][j] = scored[j].Candidate
+		}
+	}
+
+	for i := range r.islands {
+		target := (i + 1) % len(r.islands)
+
+		r.injectMigrants(r.islands[target], migrants[i])
+	}
+}
+
+func (r *islandRunner[T]) injectMigrants(
+	island *runner[T],
+	migrants []T,
+) {
+	if len(migrants) == 0 {
+		return
+	}
+
+	scored := island.scoreAndSort(island.population)
+
+	for i, migrant := range migrants {
+		targetIndex := len(scored) - 1 - i
+		if targetIndex < 0 {
+			return
+		}
+
+		scored[targetIndex].Candidate = migrant
+		scored[targetIndex].Score = island.cfg.Fitness(migrant)
+	}
+
+	nextPopulation := make([]T, len(scored))
+
+	for i, candidate := range scored {
+		nextPopulation[i] = candidate.Candidate
+	}
+
+	island.population = nextPopulation
 }
 
 func newRunner[T any](cfg Config[T]) *runner[T] {
@@ -47,37 +226,70 @@ func newRunner[T any](cfg Config[T]) *runner[T] {
 	}
 }
 
+func newIslandRunner[T any](cfg Config[T]) *islandRunner[T] {
+	islands := make([]*runner[T], cfg.Islands.Count)
+
+	for i := range islands {
+		islandCfg := cfg
+		islandCfg.Seed += int64(i)
+		islandCfg.Islands = nil
+
+		r := newRunner(islandCfg)
+		r.island = i
+		r.init()
+
+		islands[i] = r
+	}
+
+	return &islandRunner[T]{
+		cfg:     cfg,
+		islands: islands,
+	}
+}
+
 func (r *runner[T]) Run() Result[T] {
-	population := r.ops.InitialPopulation(
-		r.rng,
-		r.cfg.PopulationSize,
-		r.cfg.Generate,
-	)
+	r.init()
 
-	for generation := 0; generation < r.cfg.Generations; generation++ {
-		scored := r.scoreAndSort(population)
-
-		stats, improved := r.updateBest(generation, scored)
-
-		r.history = append(r.history, stats)
-		r.emitGeneration(stats, improved)
-
-		if r.targetReached() {
-			r.stopReason = StopReasonTargetReached
+	for r.generation < r.cfg.Generations {
+		if !r.step() {
 			return r.result()
 		}
-
-		if r.stagnated() {
-			r.stopReason = StopReasonStagnated
-			return r.result()
-		}
-
-		population = r.nextGeneration(scored)
 	}
 
 	r.stopReason = StopReasonGenerationLimit
 
 	return r.result()
+}
+func (r *runner[T]) init() {
+	r.population = r.ops.InitialPopulation(
+		r.rng,
+		r.cfg.PopulationSize,
+		r.cfg.Generate,
+	)
+}
+
+func (r *runner[T]) step() bool {
+	scored := r.scoreAndSort(r.population)
+
+	stats, improved := r.updateBest(r.generation, scored)
+
+	r.history = append(r.history, stats)
+	r.emitGeneration(stats, improved)
+
+	if r.targetReached() {
+		r.stopReason = StopReasonTargetReached
+		return false
+	}
+
+	if r.stagnated() {
+		r.stopReason = StopReasonStagnated
+		return false
+	}
+
+	r.population = r.nextGeneration(scored)
+	r.generation++
+
+	return true
 }
 
 func (r *runner[T]) scoreAndSort(population []T) []Scored[T] {
@@ -104,6 +316,7 @@ func (r *runner[T]) updateBest(
 	}
 
 	return GenerationStats[T]{
+		Island:        r.island,
 		Generation:    generation,
 		BestCandidate: r.best.Candidate,
 		BestScore:     r.best.Score,

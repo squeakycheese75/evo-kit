@@ -17,14 +17,18 @@ evo-kit handles the evolutionary loop so you can focus on the problem itself.
 
 ## Features
 
-- Go generics support
-- Maximization and minimization
-- Tournament and roulette selection
+- Generic candidate types using Go generics
+- Tournament and roulette-wheel selection
+- Maximization and minimization support
 - Elitism
-- Stagnation detection
+- Parallel fitness evaluation with configurable workers
+- Island model evolution
+- Configurable migration between islands
+- Optional parallel island execution
 - Target score stopping
-- Parallel fitness evaluation with configurable worker count
-- Generation history and statistics
+- Stagnation-based stopping
+- Generation statistics and history tracking
+- Extensible architecture for custom evolutionary operators
 
 ## Installation
 
@@ -70,11 +74,35 @@ Example output:
 best="hello world" score=11
 ```
 
+## Island Evolution
+
+```go
+cfg := ga.Config[Solution]{
+    PopulationSize: 100,
+    Generations:    500,
+
+    Islands: &ga.IslandConfig{
+        Count:             4,
+        MigrationInterval: 25,
+        MigrationCount:    2,
+        Parallel:          true,
+    },
+
+    Generate:  generate,
+    Fitness:   fitness,
+    Mutate:    mutate,
+    Crossover: crossover,
+}
+
+result, err := ga.Run(cfg)
+```
+
 ## Included Examples
 
 | Example | Description |
 |----------|-------------|
 | string_match | Evolve a string until it matches a target |
+| string_match_islands | Evolve a string using island-model evolution |
 | knapsack | Maximize value within a weight constraint |
 | query_plan | Optimize execution order and parallelism |
 
@@ -93,6 +121,12 @@ gen=31 cost=7645.53
 best cost: 7645.53
 improvement: 19.71%
 stop reason: stagnated
+```
+
+Run the island example:
+
+```bash
+go run ./examples/string_match_islands
 ```
 
 ## Configuration
