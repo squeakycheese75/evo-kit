@@ -2,6 +2,7 @@ package ga
 
 import (
 	"math/rand"
+	"sync"
 )
 
 const defaultNoOfSelectors = 3
@@ -25,6 +26,15 @@ type islandRunner[T any] struct {
 }
 
 func (r *islandRunner[T]) step() {
+	if r.cfg.Islands != nil && r.cfg.Islands.Parallel {
+		r.stepParallel()
+		return
+	}
+
+	r.stepSequential()
+}
+
+func (r *islandRunner[T]) stepSequential() {
 	for _, island := range r.islands {
 		if island.stopReason != "" {
 			continue
@@ -37,6 +47,30 @@ func (r *islandRunner[T]) step() {
 
 		island.step()
 	}
+}
+
+func (r *islandRunner[T]) stepParallel() {
+	var wg sync.WaitGroup
+
+	for _, island := range r.islands {
+		if island.stopReason != "" {
+			continue
+		}
+
+		if island.generation >= island.cfg.Generations {
+			island.stopReason = StopReasonGenerationLimit
+			continue
+		}
+
+		wg.Add(1)
+
+		go func(island *runner[T]) {
+			defer wg.Done()
+			island.step()
+		}(island)
+	}
+
+	wg.Wait()
 }
 
 func (r *islandRunner[T]) Run() Result[T] {

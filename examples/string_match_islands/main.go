@@ -29,6 +29,7 @@ func main() {
 			Count:             4,
 			MigrationInterval: 25,
 			MigrationCount:    2,
+			Parallel:          true,
 		},
 
 		Generate: func(rng *rand.Rand) string {
@@ -70,6 +71,7 @@ func main() {
 	}
 
 	fmt.Println()
+	fmt.Printf("is parallel: %t\n", cfg.Islands.Parallel)
 	fmt.Printf("best: %q\n", result.Best)
 	fmt.Printf("score: %.0f/%d\n", result.BestScore, len(target))
 	fmt.Printf("best generation: %d\n", result.Generation)

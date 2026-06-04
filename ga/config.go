@@ -69,6 +69,9 @@ type IslandConfig struct {
 	Count             int
 	MigrationInterval int
 	MigrationCount    int
+
+	// Parallel runs island steps concurrently.
+	Parallel bool
 }
 
 // Validate checks whether the config contains the required values.
