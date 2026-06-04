@@ -29,6 +29,7 @@ func main() {
 		Fitness: func(candidate string) float64 {
 			return score(candidate, target)
 		},
+		Direction: ga.Maximize,
 
 		Mutate: func(rng *rand.Rand, candidate string) string {
 			chars := []byte(candidate)
@@ -37,6 +38,8 @@ func main() {
 
 			return string(chars)
 		},
+		// Select: ga.TournamentSelector[string](3),
+		Select: ga.RouletteSelector[string](),
 
 		Crossover: func(rng *rand.Rand, a, b string) string {
 			point := rng.Intn(len(a))
@@ -56,7 +59,10 @@ func main() {
 		},
 	}
 
-	result := ga.Run(cfg)
+	result, err := ga.Run(cfg)
+	if err != nil {
+		panic("unexpected error")
+	}
 
 	fmt.Printf("best: %q\n", result.Best)
 	fmt.Printf("score: %.0f/%d\n", result.BestScore, len(target))

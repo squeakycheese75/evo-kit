@@ -70,6 +70,7 @@ func main() {
 
 			return child
 		},
+		Select: ga.TournamentSelector[Solution](3),
 
 		OnImprovement: func(stats ga.GenerationStats[Solution]) {
 			value, weight := totals(stats.BestCandidate)
@@ -85,7 +86,10 @@ func main() {
 		},
 	}
 
-	result := ga.Run(cfg)
+	result, err := ga.Run(cfg)
+	if err != nil {
+		panic("unexpected error")
+	}
 
 	value, weight := totals(result.Best)
 
