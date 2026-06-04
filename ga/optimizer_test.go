@@ -166,3 +166,53 @@ func TestRunPreservesEliteCandidate(t *testing.T) {
 		t.Fatalf("expected elite candidate to survive, got %.2f", result.BestScore)
 	}
 }
+
+func TestRunStopsWhenStagnated(t *testing.T) {
+	cfg := validConfig()
+	cfg.Generations = 100
+	cfg.MaxStagnation = 5
+	cfg.TargetScore = 0
+
+	cfg.Generate = func(rng *rand.Rand) int {
+		return 1
+	}
+
+	cfg.Fitness = func(candidate int) float64 {
+		return float64(candidate)
+	}
+
+	cfg.Mutate = func(rng *rand.Rand, candidate int) int {
+		return candidate
+	}
+
+	result, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.StopReason != StopReasonStagnated {
+		t.Fatalf("expected stop reason %q, got %q", StopReasonStagnated, result.StopReason)
+	}
+
+	if len(result.History) != cfg.MaxStagnation+1 {
+		t.Fatalf("expected %d generations run, got %d", cfg.MaxStagnation+1, len(result.History))
+	}
+}
+
+func TestRunStopReasonTargetReached(t *testing.T) {
+	cfg := validConfig()
+	cfg.TargetScore = 5
+
+	cfg.Generate = func(rng *rand.Rand) int {
+		return 5
+	}
+
+	result, err := Run(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.StopReason != StopReasonTargetReached {
+		t.Fatalf("expected stop reason %q, got %q", StopReasonTargetReached, result.StopReason)
+	}
+}

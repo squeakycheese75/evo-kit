@@ -2,18 +2,17 @@ package ga
 
 import (
 	"math/rand"
-	"sort"
 )
 
-const numberOfSelectors = 3
+const defaultNoOfSelectors = 3
 
+// Run executes a genetic algorithm using cfg and returns the best result found.
 func Run[T any](cfg Config[T]) (Result[T], error) {
-	runner := newRunner(cfg)
-
 	if err := cfg.Validate(); err != nil {
 		return Result[T]{}, err
 	}
-	return runner.Run(), nil
+
+	return newRunner(cfg).Run(), nil
 }
 
 type runner[T any] struct {
@@ -21,11 +20,7 @@ type runner[T any] struct {
 	rng      *rand.Rand
 	selector Selector[T]
 
-	initializer PopulationInitializer[T]
-	scorer      PopulationScorer[T]
-	sorter      PopulationSorter[T]
-	stats       PopulationStatsCalculator[T]
-	next        NextGenerationBuilder[T]
+	ops evolutionOps[T]
 
 	best           Scored[T]
 	bestGeneration int
@@ -38,26 +33,26 @@ type runner[T any] struct {
 func newRunner[T any](cfg Config[T]) *runner[T] {
 	selector := cfg.Select
 	if selector == nil {
-		selector = TournamentSelector[T](numberOfSelectors)
+		selector = TournamentSelector[T](defaultNoOfSelectors)
 	}
 
 	ops := defaultEvolutionOps[T]{}
 
 	return &runner[T]{
-		cfg:         cfg,
-		rng:         rand.New(rand.NewSource(cfg.Seed)),
-		selector:    selector,
-		initializer: ops,
-		scorer:      ops,
-		sorter:      ops,
-		stats:       ops,
-		next:        ops,
-		history:     make([]GenerationStats[T], 0, cfg.Generations),
+		cfg:      cfg,
+		rng:      rand.New(rand.NewSource(cfg.Seed)),
+		selector: selector,
+		ops:      ops,
+		history:  make([]GenerationStats[T], 0, cfg.Generations),
 	}
 }
 
 func (r *runner[T]) Run() Result[T] {
-	population := initialPopulation(r.rng, r.cfg.PopulationSize, r.cfg.Generate)
+	population := r.ops.InitialPopulation(
+		r.rng,
+		r.cfg.PopulationSize,
+		r.cfg.Generate,
+	)
 
 	for generation := 0; generation < r.cfg.Generations; generation++ {
 		scored := r.scoreAndSort(population)
@@ -65,7 +60,6 @@ func (r *runner[T]) Run() Result[T] {
 		stats, improved := r.updateBest(generation, scored)
 
 		r.history = append(r.history, stats)
-
 		r.emitGeneration(stats, improved)
 
 		if r.targetReached() {
@@ -87,11 +81,8 @@ func (r *runner[T]) Run() Result[T] {
 }
 
 func (r *runner[T]) scoreAndSort(population []T) []Scored[T] {
-	scored := scorePopulation(population, r.cfg.Fitness)
-
-	sort.Slice(scored, func(i, j int) bool {
-		return better(r.cfg.Direction, scored[i].Score, scored[j].Score)
-	})
+	scored := r.ops.Score(population, r.cfg.Fitness)
+	r.ops.Sort(r.cfg.Direction, scored)
 
 	return scored
 }
@@ -100,9 +91,9 @@ func (r *runner[T]) updateBest(
 	generation int,
 	scored []Scored[T],
 ) (GenerationStats[T], bool) {
-	averageScore, worstScore := populationStats(scored)
+	averageScore, worstScore := r.ops.Stats(scored)
 
-	improved := generation == 0 || better(r.cfg.Direction, scored[0].Score, r.best.Score)
+	improved := generation == 0 || isBetter(r.cfg.Direction, scored[0].Score, r.best.Score)
 
 	if improved {
 		r.best = scored[0]
@@ -123,25 +114,27 @@ func (r *runner[T]) updateBest(
 }
 
 func (r *runner[T]) emitGeneration(stats GenerationStats[T], improved bool) {
-	if !improved {
-		return
-	}
-
 	if r.cfg.OnGeneration != nil {
 		r.cfg.OnGeneration(stats)
 	}
 
-	if r.cfg.OnImprovement != nil {
+	if improved && r.cfg.OnImprovement != nil {
 		r.cfg.OnImprovement(stats)
 	}
 }
 
 func (r *runner[T]) targetReached() bool {
-	return r.cfg.TargetScore > 0 && r.best.Score >= r.cfg.TargetScore
+	return r.cfg.TargetScore > 0 &&
+		isBetterOrEqual(r.cfg.Direction, r.best.Score, r.cfg.TargetScore)
 }
 
 func (r *runner[T]) nextGeneration(scored []Scored[T]) []T {
-	return nextGeneration(r.rng, r.cfg, scored, r.selector)
+	return r.ops.NextGeneration(
+		r.rng,
+		r.cfg,
+		scored,
+		r.selector,
+	)
 }
 
 func (r *runner[T]) result() Result[T] {

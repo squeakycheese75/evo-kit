@@ -12,7 +12,7 @@ func TournamentSelector[T any](size int) Selector[T] {
 
 		for i := 1; i < size; i++ {
 			candidate := population[rng.Intn(len(population))]
-			if better(direction, candidate.Score, best.Score) {
+			if isBetter(direction, candidate.Score, best.Score) {
 				best = candidate
 			}
 		}
