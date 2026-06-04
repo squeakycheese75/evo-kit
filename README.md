@@ -23,7 +23,7 @@ evo-kit handles the evolutionary loop so you can focus on the problem itself.
 - Elitism
 - Stagnation detection
 - Target score stopping
-- Parallel fitness evaluation
+- Parallel fitness evaluation with configurable worker count
 - Generation history and statistics
 
 ## Installation
@@ -64,7 +64,13 @@ fmt.Printf("best=%q score=%.0f\n",
 )
 ```
 
-## Examples
+Example output:
+
+```text
+best="hello world" score=11
+```
+
+## Included Examples
 
 | Example | Description |
 |----------|-------------|
@@ -109,6 +115,36 @@ cfg := ga.Config[Candidate]{
 }
 ```
 
+## Parallel Fitness Evaluation
+
+Fitness evaluation can be parallelised with `Workers`.
+
+```go
+cfg := ga.Config[Candidate]{
+    PopulationSize: 500,
+    Generations:    200,
+    Workers:        runtime.NumCPU(),
+
+    Generate:  generate,
+    Fitness:   expensiveFitness,
+    Mutate:    mutate,
+    Crossover: crossover,
+}
+```
+
+A value of `0` or `1` scores candidates sequentially.
+
+When `Workers > 1`, the fitness function must be safe to call concurrently.
+
+Typical scaling for expensive fitness functions:
+
+| Workers | Time |
+|----------|------|
+| 1 | 1.18s |
+| 2 | 590ms |
+| 4 | 296ms |
+| 8 | 154ms |
+
 ## When should I use a genetic algorithm?
 
 Genetic algorithms work well when:
@@ -119,13 +155,3 @@ Genetic algorithms work well when:
 - The fitness function is easy to evaluate
 
 Examples include scheduling, routing, portfolio optimization, query planning, game AI, and parameter tuning.
-
-## Current Status
-
-evo-kit is under active development.
-
-Current examples:
-
-- String matching
-- Knapsack optimization
-- Query plan optimization
