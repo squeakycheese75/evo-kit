@@ -61,6 +61,14 @@ type Config[T any] struct {
 	// A value of zero or one scores candidates sequentially.
 	// Fitness functions must be safe for concurrent use when Workers is greater than one.
 	Workers int
+
+	Islands *IslandConfig
+}
+
+type IslandConfig struct {
+	Count             int
+	MigrationInterval int
+	MigrationCount    int
 }
 
 // Validate checks whether the config contains the required values.
@@ -95,6 +103,10 @@ func (cfg Config[T]) Validate() error {
 
 	if cfg.Workers < 0 {
 		return fmt.Errorf("workers must be greater than or equal to zero")
+	}
+
+	if cfg.Islands != nil && cfg.Islands.Count <= 0 {
+		return fmt.Errorf("island count must be greater than zero")
 	}
 
 	return nil

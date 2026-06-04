@@ -32,6 +32,25 @@ type Scored[T any] struct {
 	Score     float64
 }
 
+type runner[T any] struct {
+	cfg      Config[T]
+	rng      *rand.Rand
+	selector Selector[T]
+
+	ops evolutionOps[T]
+
+	best           Scored[T]
+	bestGeneration int
+	stagnation     int
+
+	history    []GenerationStats[T]
+	stopReason StopReason
+
+	population []T
+	generation int
+	island     int
+}
+
 // Result contains the outcome of a genetic algorithm run.
 type Result[T any] struct {
 	Best      T
@@ -49,6 +68,7 @@ type Result[T any] struct {
 
 // GenerationStats contains statistics for a single generation.
 type GenerationStats[T any] struct {
+	Island        int
 	Generation    int
 	BestCandidate T
 	BestScore     float64
