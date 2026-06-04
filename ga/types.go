@@ -10,6 +10,14 @@ const (
 	Minimize
 )
 
+type StopReason string
+
+const (
+	StopReasonGenerationLimit StopReason = "generation_limit"
+	StopReasonTargetReached   StopReason = "target_reached"
+	StopReasonStagnated       StopReason = "stagnated"
+)
+
 type PopulationInitializer[T any] interface {
 	InitialPopulation(rng *rand.Rand, size int, generate Generator[T]) []T
 }
@@ -58,6 +66,7 @@ type Config[T any] struct {
 	CrossoverRate  float64
 	EliteCount     int
 	Seed           int64
+	MaxStagnation  int
 
 	Generate  Generator[T]
 	Fitness   FitnessFunc[T]
@@ -112,6 +121,8 @@ type Result[T any] struct {
 	Best       T
 	BestScore  float64
 	Generation int
+	History    []GenerationStats[T]
+	StopReason StopReason
 }
 
 type GenerationStats[T any] struct {

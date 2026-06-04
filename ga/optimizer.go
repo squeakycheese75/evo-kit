@@ -30,6 +30,9 @@ type runner[T any] struct {
 	best           Scored[T]
 	bestGeneration int
 	stagnation     int
+
+	history    []GenerationStats[T]
+	stopReason StopReason
 }
 
 func newRunner[T any](cfg Config[T]) *runner[T] {
@@ -49,6 +52,7 @@ func newRunner[T any](cfg Config[T]) *runner[T] {
 		sorter:      ops,
 		stats:       ops,
 		next:        ops,
+		history:     make([]GenerationStats[T], 0, cfg.Generations),
 	}
 }
 
@@ -60,14 +64,24 @@ func (r *runner[T]) Run() Result[T] {
 
 		stats, improved := r.updateBest(generation, scored)
 
+		r.history = append(r.history, stats)
+
 		r.emitGeneration(stats, improved)
 
 		if r.targetReached() {
+			r.stopReason = StopReasonTargetReached
+			return r.result()
+		}
+
+		if r.stagnated() {
+			r.stopReason = StopReasonStagnated
 			return r.result()
 		}
 
 		population = r.nextGeneration(scored)
 	}
+
+	r.stopReason = StopReasonGenerationLimit
 
 	return r.result()
 }
@@ -88,7 +102,6 @@ func (r *runner[T]) updateBest(
 ) (GenerationStats[T], bool) {
 	averageScore, worstScore := populationStats(scored)
 
-	// improved := generation == 0 || scored[0].Score > r.best.Score
 	improved := generation == 0 || better(r.cfg.Direction, scored[0].Score, r.best.Score)
 
 	if improved {
@@ -136,5 +149,12 @@ func (r *runner[T]) result() Result[T] {
 		Best:       r.best.Candidate,
 		BestScore:  r.best.Score,
 		Generation: r.bestGeneration,
+		History:    r.history,
+		StopReason: r.stopReason,
 	}
+}
+
+func (r *runner[T]) stagnated() bool {
+	return r.cfg.MaxStagnation > 0 &&
+		r.stagnation >= r.cfg.MaxStagnation
 }

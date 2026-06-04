@@ -40,6 +40,7 @@ func main() {
 		EliteCount:     2,
 		Seed:           time.Now().UnixNano(),
 		Select:         ga.TournamentSelector[QueryPlan](3),
+		MaxStagnation:  25,
 
 		Generate: func(rng *rand.Rand) QueryPlan {
 			return randomPlan(rng)
@@ -89,13 +90,20 @@ func main() {
 	fmt.Printf("best cost: %.2f\n", estimatedCost(result.Best))
 	fmt.Printf("parallelism: %d\n", result.Best.Parallelism)
 	fmt.Printf("order: %v\n", datasetNames(result.Best.Order))
-	fmt.Printf("generation: %d\n", result.Generation)
+	fmt.Printf("best generation: %d\n", result.Generation)
+	fmt.Printf("generations run: %d\n", len(result.History))
+	fmt.Printf("stop reason: %s\n", result.StopReason)
 
 	fmt.Println("explanation:")
 
 	for _, line := range explainPlan(result.Best) {
 		fmt.Printf("- %s\n", line)
 	}
+
+	fmt.Printf(
+		"improvement: %.2f%%\n",
+		(1-(result.BestScore/result.History[0].BestScore))*100,
+	)
 }
 
 func randomPlan(rng *rand.Rand) QueryPlan {
