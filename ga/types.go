@@ -43,7 +43,11 @@ type Mutator[T any] func(rng *rand.Rand, candidate T) T
 
 type Crossover[T any] func(rng *rand.Rand, a, b T) T
 
-type Selector[T any] func(rng *rand.Rand, population []Scored[T]) T
+type Selector[T any] func(
+	rng *rand.Rand,
+	population []Scored[T],
+	direction OptimizationDirection,
+) T
 
 type OptimizationDirection int
 

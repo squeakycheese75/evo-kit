@@ -62,8 +62,8 @@ func nextGeneration[T any](
 	}
 
 	for len(next) < cfg.PopulationSize {
-		a := selector(rng, scored)
-		b := selector(rng, scored)
+		a := selector(rng, scored, cfg.Direction)
+		b := selector(rng, scored, cfg.Direction)
 
 		child := a
 
